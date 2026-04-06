@@ -1,7 +1,7 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, Response
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, Response, jsonify
 from datetime import datetime, timezone
 from config import Config
-from models import db, User, Ticket
+from models import db, User, Ticket, Message
 try:
     from zoneinfo import ZoneInfo
 except Exception:
@@ -163,6 +163,12 @@ def index():
 def new_ticket():
     err = auth_required()
     if err: return err
+    
+    # Специалисты поддержки не могут создавать заявки
+    if session['user_role'] == 'support':
+        flash('Специалисты поддержки не могут создавать заявки.', 'danger')
+        return redirect(url_for('index'))
+    
     if request.method == 'POST':
         title       = request.form.get('title', '').strip()
         description = request.form.get('description', '').strip()
@@ -212,6 +218,46 @@ def assign_executor(ticket_id):
     ticket.updated_at  = datetime.utcnow()
     db.session.commit()
     flash('Исполнитель назначен.', 'success')
+    return redirect(url_for('ticket_detail', ticket_id=ticket_id))
+
+
+@app.route('/tickets/<int:ticket_id>/take', methods=['POST'])
+def take_ticket(ticket_id):
+    """Специалист берёт заявку в работу (назначает себя)"""
+    err = auth_required(role=['support', 'admin'])
+    if err: return err
+    ticket = Ticket.query.get_or_404(ticket_id)
+    
+    # Можно взять только если не назначена никому или я уже назначен
+    if ticket.executor_id and ticket.executor_id != session['user_id']:
+        flash('Заявка уже назначена другому специалисту.', 'warning')
+        return redirect(url_for('ticket_detail', ticket_id=ticket_id))
+    
+    ticket.executor_id = session['user_id']
+    if ticket.status == 'new':
+        ticket.status = 'in_progress'
+    ticket.updated_at = datetime.utcnow()
+    db.session.commit()
+    flash('Вы взяли заявку в работу.', 'success')
+    return redirect(url_for('ticket_detail', ticket_id=ticket_id))
+
+
+@app.route('/tickets/<int:ticket_id>/release', methods=['POST'])
+def release_ticket(ticket_id):
+    """Специалист отпускает заявку (отменяет своё назначение)"""
+    err = auth_required(role=['support', 'admin'])
+    if err: return err
+    ticket = Ticket.query.get_or_404(ticket_id)
+    
+    # Можно отпустить только если я назначен или я админ
+    if ticket.executor_id != session['user_id'] and session['user_role'] != 'admin':
+        flash('Вы не являетесь исполнителем.', 'danger')
+        return redirect(url_for('ticket_detail', ticket_id=ticket_id))
+    
+    ticket.executor_id = None
+    ticket.updated_at = datetime.utcnow()
+    db.session.commit()
+    flash('Заявка отпущена.', 'success')
     return redirect(url_for('ticket_detail', ticket_id=ticket_id))
 
 
@@ -386,6 +432,61 @@ def delete_user(user_id):
     db.session.commit()
     flash(f'Пользователь {name} удалён. Его открытые заявки закрыты, исполнитель в остальных — обнулен.', 'success')
     return redirect(url_for('users_list'))
+
+
+# ── Чат в заявках ─────────────────────────────────────────────────
+
+@app.route('/tickets/<int:ticket_id>/message', methods=['POST'])
+def add_message(ticket_id):
+    err = auth_required()
+    if err: return err
+    
+    ticket = Ticket.query.get_or_404(ticket_id)
+    
+    # Проверка прав: только автор, исполнитель или админ могут писать
+    user_id = session['user_id']
+    if user_id not in (ticket.author_id, ticket.executor_id) and session['user_role'] != 'admin':
+        flash('У вас нет прав на эту заявку.', 'danger')
+        return redirect(url_for('ticket_detail', ticket_id=ticket_id))
+    
+    text = request.form.get('text', '').strip()
+    if not text:
+        flash('Сообщение не может быть пусто.', 'danger')
+        return redirect(url_for('ticket_detail', ticket_id=ticket_id))
+    
+    msg = Message(ticket_id=ticket_id, user_id=user_id, text=text)
+    db.session.add(msg)
+    db.session.commit()
+    
+    return redirect(url_for('ticket_detail', ticket_id=ticket_id))
+
+
+@app.route('/api/messages/<int:ticket_id>')
+def api_messages(ticket_id):
+    """Возвращает все сообщения заявки в JSON"""
+    err = auth_required()
+    if err: return err
+    
+    ticket = Ticket.query.get_or_404(ticket_id)
+    
+    # Проверка прав: только автор, исполнитель или админ могут видеть чат
+    user_id = session['user_id']
+    if user_id not in (ticket.author_id, ticket.executor_id) and session['user_role'] != 'admin':
+        return jsonify([]), 403
+    
+    messages = ticket.messages
+    
+    msgs_data = []
+    for m in messages:
+        msgs_data.append({
+            'id': m.id,
+            'user_name': m.user.name,
+            'user_role': m.user.role,
+            'text': m.text,
+            'created_at': m.created_at.isoformat()
+        })
+    
+    return jsonify(msgs_data)
 
 
 # ── API для автообновления заявок ─────────────────────────────────

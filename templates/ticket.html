@@ -12,7 +12,7 @@
 <div class="row g-3">
   <!-- Основная информация -->
   <div class="col-12 col-lg-8">
-    <div class="card h-100">
+    <div class="card mb-3">
       <div class="card-header d-flex justify-content-between align-items-center">
         <span class="fw-semibold">{{ ticket.title }}</span>
         <span class="badge bg-{{ status_colors[ticket.status] }}">{{ status_labels[ticket.status] }}</span>
@@ -24,6 +24,36 @@
         Создана: {{ ticket.created_at|format_dt('%d.%m.%Y %H:%M') }}
         &nbsp;·&nbsp;
         Изменена: {{ ticket.updated_at|format_dt('%d.%m.%Y %H:%M') }}
+      </div>
+    </div>
+
+    <!-- Чат -->
+    <div class="card">
+      <div class="card-header fw-semibold small"><i class="bi bi-chat-left-text me-1"></i>Чат</div>
+      <div class="card-body" id="messages-container" style="height: 350px; overflow-y: auto; background-color: #f8f9fa; display: flex; flex-direction: column; gap: 10px; padding: 12px;">
+        {% for msg in ticket.messages %}
+        <div style="background: white; border-radius: 8px; padding: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+          <div class="d-flex justify-content-between align-items-start mb-2">
+            <span class="fw-semibold" style="color: #0066cc; font-size: 0.95rem;">{{ msg.user.name }}</span>
+            <span class="text-muted" style="font-size: 0.75rem;">{{ msg.created_at|format_dt('%d.%m.%Y %H:%M') }}</span>
+          </div>
+          <div style="white-space: pre-wrap; line-height: 1.4; color: #333;">{{ msg.text }}</div>
+        </div>
+        {% else %}
+        <div class="text-muted text-center" style="margin: auto; font-style: italic;">Сообщений нет</div>
+        {% endfor %}
+      </div>
+      <div class="card-footer bg-white border-top">
+        {% if ticket.status == 'closed' %}
+        <div class="alert alert-info alert-sm mb-0" style="padding: 8px; font-size: 0.85rem;">
+          🔒 Заявка закрыта. Чат недоступен.
+        </div>
+        {% else %}
+        <form method="POST" action="{{ url_for('add_message', ticket_id=ticket.id) }}" class="d-flex gap-2">
+          <textarea name="text" class="form-control form-control-sm" placeholder="Введите сообщение..." rows="2" required style="resize: vertical;"></textarea>
+          <button type="submit" class="btn btn-primary btn-sm" style="align-self: flex-end;"><i class="bi bi-send"></i></button>
+        </form>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -57,22 +87,27 @@
       <div class="card-header fw-semibold small"><i class="bi bi-arrow-repeat me-1"></i>Изменить статус</div>
       <div class="card-body">
         <form method="POST" action="{{ url_for('change_status', ticket_id=ticket.id) }}">
-          <select name="status" class="form-select form-select-sm mb-2">
+          <select name="status" class="form-select form-select-sm mb-2" {% if ticket.status == 'closed' %}disabled{% endif %}>
             {% for key, label in status_labels.items() %}
             <option value="{{ key }}" {% if key == ticket.status %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
           <div class="d-grid">
-            <button type="submit" class="btn btn-primary btn-sm">Сохранить</button>
+            <button type="submit" class="btn btn-primary btn-sm" {% if ticket.status == 'closed' %}disabled{% endif %}>Сохранить</button>
           </div>
         </form>
+        {% if ticket.status == 'closed' %}
+        <div class="alert alert-info alert-sm mb-0 mt-2" style="padding: 8px; font-size: 0.85rem;">
+          ℹ️ Заявка закрыта. Чат и изменение статуса недоступны.
+        </div>
+        {% endif %}
       </div>
     </div>
     {% endif %}
 
     <!-- Назначение исполнителя (только admin) -->
     {% if session.user_role == 'admin' %}
-    <div class="card">
+    <div class="card mb-3">
       <div class="card-header fw-semibold small"><i class="bi bi-person-check me-1"></i>Назначить исполнителя</div>
       <div class="card-body">
         <form method="POST" action="{{ url_for('assign_executor', ticket_id=ticket.id) }}">
@@ -90,6 +125,121 @@
     </div>
     {% endif %}
 
+    <!-- Кнопки для специалистов (support) -->
+    {% if session.user_role == 'support' and ticket.status != 'closed' %}
+    <div class="card">
+      <div class="card-header fw-semibold small"><i class="bi bi-hand-thumbs-up me-1"></i>Действия</div>
+      <div class="card-body">
+        {% if ticket.executor_id == session.user_id %}
+          <form method="POST" action="{{ url_for('release_ticket', ticket_id=ticket.id) }}" class="mb-2">
+            <button type="submit" class="btn btn-warning btn-sm w-100">
+              <i class="bi bi-x-circle me-1"></i>Отпустить заявку
+            </button>
+          </form>
+        {% elif not ticket.executor_id %}
+          <form method="POST" action="{{ url_for('take_ticket', ticket_id=ticket.id) }}">
+            <button type="submit" class="btn btn-success btn-sm w-100">
+              <i class="bi bi-check-circle me-1"></i>Взять в работу
+            </button>
+          </form>
+        {% else %}
+          <div class="alert alert-warning alert-sm mb-0" style="padding: 8px; font-size: 0.85rem;">
+            ⚠️ Заявка уже назначена {{ticket.executor.name}}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
   </div>
 </div>
+
+<script>
+const ticketId = "{{ ticket.id }}";
+const messagesContainer = document.getElementById('messages-container');
+
+// Функция для загрузки сообщений
+function loadMessages() {
+  fetch(`/api/messages/${ticketId}`)
+    .then(response => response.json())
+    .then(messages => {
+      // Очищаем контейнер
+      messagesContainer.innerHTML = '';
+      
+      if (messages.length === 0) {
+        messagesContainer.innerHTML = '<div class="text-muted text-center" style="margin: auto; font-style: italic;">Сообщений нет</div>';
+      } else {
+        messages.forEach(msg => {
+          const msgDiv = document.createElement('div');
+          
+          // Определяем цвет в зависимости от роли
+          let bgColor = '#ffffff';
+          let borderColor = '#e0e0e0';
+          let nameColor = '#0066cc';
+          
+          if (msg.user_role === 'support') {
+            // Исполнитель - голубой/синий фон
+            bgColor = '#e3f2fd';
+            borderColor = '#2196F3';
+            nameColor = '#1976d2';
+          } else if (msg.user_role === 'admin') {
+            // Администратор - оранжевый фон
+            bgColor = '#fff3e0';
+            borderColor = '#FF9800';
+            nameColor = '#f57c00';
+          } else {
+            // Обычный сотрудник - белый фон
+            bgColor = '#ffffff';
+            borderColor = '#e0e0e0';
+            nameColor = '#0066cc';
+          }
+          
+          msgDiv.style.cssText = `
+            background: ${bgColor}; 
+            border-radius: 8px; 
+            padding: 12px; 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border-left: 4px solid ${borderColor};
+          `;
+          
+          // Преобразуем ISO дату в читаемый формат
+          const date = new Date(msg.created_at);
+          const dateStr = date.toLocaleString('ru-RU', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+          
+          const headerDiv = document.createElement('div');
+          headerDiv.className = 'd-flex justify-content-between align-items-start mb-2';
+          headerDiv.innerHTML = `
+            <span class="fw-semibold" style="color: ${nameColor}; font-size: 0.95rem;">${msg.user_name}</span>
+            <span class="text-muted" style="font-size: 0.75rem;">${dateStr}</span>
+          `;
+          
+          const textDiv = document.createElement('div');
+          textDiv.style.cssText = 'white-space: pre-wrap; line-height: 1.4; color: #333;';
+          textDiv.textContent = msg.text;
+          
+          msgDiv.appendChild(headerDiv);
+          msgDiv.appendChild(textDiv);
+          messagesContainer.appendChild(msgDiv);
+        });
+      }
+      
+      // Скроллим вниз к последнему сообщению
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    })
+    .catch(error => console.error('Ошибка при загрузке сообщений:', error));
+}
+
+// Загружаем сообщения при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+  loadMessages();
+  // Обновляем каждые 3 секунды
+  setInterval(loadMessages, 3000);
+});
+</script>
 {% endblock %}

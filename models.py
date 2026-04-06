@@ -36,3 +36,15 @@ class Ticket(db.Model):
 
     author   = db.relationship('User', foreign_keys=[author_id],   backref='created_tickets')
     executor = db.relationship('User', foreign_keys=[executor_id], backref='assigned_tickets')
+    messages = db.relationship('Message', backref='ticket', lazy=True, cascade='all, delete-orphan')
+
+
+class Message(db.Model):
+    __tablename__ = 'messages'
+    id         = db.Column(db.Integer, primary_key=True)
+    ticket_id  = db.Column(db.Integer, db.ForeignKey('tickets.id'), nullable=False)
+    user_id    = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    text       = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', backref='messages')

@@ -13,9 +13,11 @@
         <option value="status"       {% if current_sort=='status'       %}selected{% endif %}>По статусу</option>
       </select>
     </form>
+    {% if session.user_role != 'support' %}
     <a href="{{ url_for('new_ticket') }}" class="btn btn-primary btn-sm">
       <i class="bi bi-plus-lg me-1"></i>Создать заявку
     </a>
+    {% endif %}
   </div>
 </div>
 
