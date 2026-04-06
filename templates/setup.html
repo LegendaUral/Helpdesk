@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% block title %}Первоначальная настройка{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-sm-8 col-md-5 col-lg-4">
+    <div class="card mt-5">
+      <div class="card-body p-4">
+
+        <div class="text-center mb-4">
+          <i class="bi bi-headset display-4 text-primary"></i>
+          <h4 class="mt-2 fw-bold">HelpDesk</h4>
+          <p class="text-muted small">Первоначальная настройка</p>
+          <div class="alert alert-info small text-start py-2">
+            <i class="bi bi-info-circle me-1"></i>
+            Создайте учётную запись администратора. Это действие выполняется один раз.
+          </div>
+        </div>
+
+        <form method="POST" novalidate>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Ваше имя <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control"
+                   placeholder="Иванов Иван Иванович"
+                   value="{{ name }}" required autofocus>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Email <span class="text-danger">*</span></label>
+            <input type="email" name="email" class="form-control"
+                   placeholder="admin@company.ru"
+                   value="{{ email }}" required>
+            <div class="form-text">Будет использоваться как логин</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Пароль <span class="text-danger">*</span></label>
+            <input type="password" name="password" class="form-control"
+                   placeholder="Минимум 6 символов"
+                   minlength="6" required>
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Повторите пароль <span class="text-danger">*</span></label>
+            <input type="password" name="confirm" class="form-control"
+                   placeholder="Введите пароль ещё раз" required>
+          </div>
+
+          <div class="d-grid">
+            <button type="submit" class="btn btn-primary btn-lg">
+              <i class="bi bi-check-circle me-1"></i>Создать администратора
+            </button>
+          </div>
+
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
